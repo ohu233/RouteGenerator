@@ -127,6 +127,7 @@ def generate_traj_single(hex_grid: dict, size: int, mode: str, time_interval=6) 
 
         current_pos = start
         sub_route_list = []  # accumulate (traj_id, cq, cr) tuples
+        prev_dir = None
         while cnt < expected_sample_len:
             cq, cr, cs = current_pos
             sub_route_list.append((traj_id, cq, cr, cs))  # q, r, s cube coords
@@ -135,27 +136,31 @@ def generate_traj_single(hex_grid: dict, size: int, mode: str, time_interval=6) 
             recent.append(current_pos)
             cnt += 1
 
-            random_shuffle = []
+            valid_dirs = []
             for idx in range(6):
                 nq, nr, ns = _get_new_coordinates(cq, cr, cs, idx)
                 neighbor_coord = (nq, nr, ns)
                 if neighbor_coord in hex_grid and neighbor_coord not in recent:
                     neighbor_code = hex_grid[neighbor_coord]['code']
                     if _allow(neighbor_code, mode):
-                        random_shuffle.append(idx)
+                        valid_dirs.append(idx)
 
-            if not random_shuffle:
-                # Fall back: allow revisiting any valid neighbor
-                for idx in range(6):
-                    nq, nr, ns = _get_new_coordinates(cq, cr, cs, idx)
-                    neighbor_coord = (nq, nr, ns)
-                    if neighbor_coord in hex_grid:
-                        neighbor_code = hex_grid[neighbor_coord]['code']
-                        if _allow(neighbor_code, mode):
-                            random_shuffle.append(idx)
-            if not random_shuffle:
+            if not valid_dirs:
                 break
-            delta = random.choice(random_shuffle)
+
+            if prev_dir is not None:
+                turn_weights = [4, 3, 0, 0, 0, 3]
+                weights = [turn_weights[(d - prev_dir) % 6] for d in valid_dirs]
+                if sum(weights) == 0:
+                    soft_weights = [3, 2, 1, 0, 1, 2]
+                    weights = [soft_weights[(d - prev_dir) % 6] for d in valid_dirs]
+                    if sum(weights) == 0:
+                        weights = [1] * len(valid_dirs)
+            else:
+                weights = [1] * len(valid_dirs)
+
+            delta = random.choices(valid_dirs, weights=weights, k=1)[0]
+            prev_dir = delta
             current_pos = _get_new_coordinates(cq, cr, cs, delta)
 
         # Sample trajectory with time_interval
@@ -248,39 +253,51 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
         change_position = (-1, -1, -1)
 
         sub_route_list = []  # accumulate (traj_id, cq, cr) tuples
+        prev_dir = None
         while cnt < expected_sample_len:
             cq, cr, cs = current_pos
             sub_route_list.append((traj_id, cq, cr, cs))  # q, r, s cube coords
             route_list.append(current_pos)
             recent.append(current_pos)
             cnt += 1
-            random_shuffle = []
-
             if not changed and _allow_change(hex_grid[current_pos]['code'], mode) and cnt > 80 and random.random() < 0.8:
                 changed = True
                 current_mode = next_mode
                 change_position = current_pos
 
+            valid_dirs = []
             for idx in range(6):
                 nq, nr, ns = _get_new_coordinates(cq, cr, cs, idx)
                 neighbor_coord = (nq, nr, ns)
                 if neighbor_coord in hex_grid and neighbor_coord not in recent:
                     neighbor_code = hex_grid[neighbor_coord]['code']
                     if _allow(neighbor_code, current_mode):
-                        random_shuffle.append(idx)
+                        valid_dirs.append(idx)
 
-            if not random_shuffle:
-                # Fall back: allow revisiting any valid neighbor
+            if not valid_dirs:
                 for idx in range(6):
                     nq, nr, ns = _get_new_coordinates(cq, cr, cs, idx)
                     neighbor_coord = (nq, nr, ns)
                     if neighbor_coord in hex_grid:
                         neighbor_code = hex_grid[neighbor_coord]['code']
                         if _allow(neighbor_code, current_mode):
-                            random_shuffle.append(idx)
-            if not random_shuffle:
+                            valid_dirs.append(idx)
+            if not valid_dirs:
                 break
-            delta = random.choice(random_shuffle)
+
+            if prev_dir is not None:
+                turn_weights = [4, 3, 0, 0, 0, 3]
+                weights = [turn_weights[(d - prev_dir) % 6] for d in valid_dirs]
+                if sum(weights) == 0:
+                    soft_weights = [3, 2, 1, 0, 1, 2]
+                    weights = [soft_weights[(d - prev_dir) % 6] for d in valid_dirs]
+                    if sum(weights) == 0:
+                        weights = [1] * len(valid_dirs)
+            else:
+                weights = [1] * len(valid_dirs)
+
+            delta = random.choices(valid_dirs, weights=weights, k=1)[0]
+            prev_dir = delta
             current_pos = _get_new_coordinates(cq, cr, cs, delta)
 
         if change_position == (-1, -1, -1):

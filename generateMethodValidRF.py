@@ -4,21 +4,26 @@ from sklearn.model_selection import train_test_split
 from collections import Counter
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-# training model
-df_raw_train = pd.read_csv('data/trainRealData.csv')
+# Load artificial trajectory features
+df = pd.read_csv('data/realWorldMixedFeatures.csv')
 
-X_train = df_raw_train[['speed','TG','GG','GSD','TS']]
-Y_train = df_raw_train['mode']
+# Split by trajectory ID to avoid data leakage (same trajectory in both train and test)
+traj_ids = df['ID'].unique()
+train_ids, test_ids = train_test_split(traj_ids, test_size=0.3, random_state=42)
 
+df_train = df[df['ID'].isin(train_ids)]
+df_test = df[df['ID'].isin(test_ids)]
+
+X_train = df_train[['speed','TG','GG','GSD','TS']]
+Y_train = df_train['mode']
+
+# Train model
 clf = RandomForestClassifier(max_depth=9, n_estimators=200, max_features=10, random_state=42)
 clf.fit(X_train, Y_train)
 
-
-# testing model, artificial_traj_features.csv realWorldFeatures.csv
-df_raw_test = pd.read_csv('data/realWorldMixedFeatures.csv')
-
-X_test = df_raw_test[['speed','TG','GG','GSD','TS']]
-Y_test = df_raw_test['mode']
+# Test model
+X_test = df_test[['speed','TG','GG','GSD','TS']]
+Y_test = df_test['mode']
 Y_pred = clf.predict(X_test)
 
 
@@ -35,16 +40,28 @@ def majority_vote(predictions, ids):
 
     return final_predictions
 
-Y_pred_voted = majority_vote(Y_pred, df_raw_test['ID'])
+Y_pred_voted = majority_vote(Y_pred, df_test['ID'])
 
-# accuracy,precision,recall,f1
+# Point-level metrics
 accuracy = accuracy_score(Y_test, Y_pred)
-presicion = precision_score(Y_test, Y_pred, average='weighted')
+precision = precision_score(Y_test, Y_pred, average='weighted')
 recall = recall_score(Y_test, Y_pred, average='weighted')
 f1 = f1_score(Y_test, Y_pred, average='weighted')
 
+print('=== Point-level ===')
+print(f'Accuracy:  {accuracy:.4f}')
+print(f'Precision: {precision:.4f}')
+print(f'Recall:    {recall:.4f}')
+print(f'F1:        {f1:.4f}')
 
-print('Accuracy: ', accuracy, '\n')
-print('Presicion: ', presicion, '\n')
-print('Recall: ', recall, '\n')
-print('F1: ', f1, '\n')
+# Trajectory-level metrics (after majority vote)
+accuracy_voted = accuracy_score(Y_test, Y_pred_voted)
+precision_voted = precision_score(Y_test, Y_pred_voted, average='weighted')
+recall_voted = recall_score(Y_test, Y_pred_voted, average='weighted')
+f1_voted = f1_score(Y_test, Y_pred_voted, average='weighted')
+
+print('\n=== Trajectory-level (majority vote) ===')
+print(f'Accuracy:  {accuracy_voted:.4f}')
+print(f'Precision: {precision_voted:.4f}')
+print(f'Recall:    {recall_voted:.4f}')
+print(f'F1:        {f1_voted:.4f}')
