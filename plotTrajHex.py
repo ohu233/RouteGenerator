@@ -18,6 +18,7 @@ from matplotlib.patches import Polygon
 from matplotlib.collections import PatchCollection
 from PIL import Image
 from collections import defaultdict
+from hexUtils import hex_round
 
 warnings.filterwarnings('ignore')
 
@@ -62,9 +63,10 @@ _wgs84_to_gcj02_vec = np.vectorize(wgs84_to_gcj02, otypes=[np.float64, np.float6
 TILE_URL = "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}"
 TILE_SIZE = 256
 OUTPUT_DIR = "data/traj_plots"
+TRAJ_CSV = "data/artificial_od_test.csv"  # trajectory or OD CSV file
 MAX_TRAJS = None  # set to a number to limit output, None = all
 MAX_TRAJS_PER_MODE = None  # e.g. 5 to plot only 5 per mode, None = all
-PLOT_MODES = ['TG', 'TS']  # set to subset, e.g. ['TG', 'TS']
+PLOT_MODES = ['TG', 'GG', 'GSD', 'TS']  # set to subset, e.g. ['TG', 'TS']
 
 MODE_COLORS = {'TG': '#e31a1c', 'GG': '#1f78b4', 'GSD': '#fdbf6f', 'TS': '#33a02c'}
 MODE_LABELS = {'TG': '高铁 TG', 'GG': '高速 GG', 'GSD': '国省道 GSD', 'TS': '普铁 TS'}
@@ -226,35 +228,67 @@ coord_to_lonlat = {k: (v['lon'], v['lat']) for k, v in hex_grid_gcj.items()}
 valid_keys_set = set(coord_to_lonlat.keys())
 HEX_OFFSETS_L = [(0, 0, 0), (1, 0, -1), (1, -1, 0), (0, -1, 1), (-1, 0, 1), (-1, 1, 0), (0, 1, -1)]
 
-print("Loading trajectory CSV ...")
-df = pd.read_csv('data/artificial_traj_mixed_single.csv')
-print(f"  {len(df)} trajectory points, {df['ID'].nunique()} trajectories")
+print(f"Loading CSV: {TRAJ_CSV} ...")
+df = pd.read_csv(TRAJ_CSV)
+print(f"  {len(df)} rows, {df['ID'].nunique()} unique IDs")
+
+# Detect CSV format: trajectory (locx/locy/locz) vs OD (locxo/locyo/loczo)
+IS_OD = 'locxo' in df.columns
+
+if IS_OD:
+    print("  Detected OD format (origin-destination pairs)")
+else:
+    print("  Detected trajectory format (point sequence)")
 
 # ── Convert cube → lon/lat ──────────────────────────────────────────
 
-q_arr = np.round(df['locx'].values).astype(int)
-r_arr = np.round(df['locy'].values).astype(int)
-s_arr = -q_arr - r_arr  # enforce q+r+s=0
+def cube_to_lonlat(q, r, s):
+    """Snap a (possibly jittered) cube coordinate to a valid hex cell and return GCJ-02 lon/lat."""
+    # First round to nearest valid cube coordinate (fixes jitter that broke q+r+s=0)
+    rq, rr, rs = hex_round(q, r, s)
+    key = (rq, rr, rs)
+    if key in valid_keys_set:
+        return coord_to_lonlat[key]
+    # Fallback: search ±1 neighbors
+    for dq, dr, ds in HEX_OFFSETS_L:
+        nkey = (rq + dq, rr + dr, rs + ds)
+        if nkey in valid_keys_set:
+            return coord_to_lonlat[nkey]
+    return None, None
 
-lons = np.full(len(df), np.nan)
-lats = np.full(len(df), np.nan)
 
-for i in range(len(df)):
-    key = (q_arr[i], r_arr[i], s_arr[i])
-    if key not in valid_keys_set:
-        for dq, dr, ds in HEX_OFFSETS_L:
-            nkey = (q_arr[i] + dq, r_arr[i] + dr, s_arr[i] + ds)
-            if nkey in valid_keys_set:
-                key = nkey
-                break
-        else:
-            key = None
-    if key is not None:
-        lons[i], lats[i] = coord_to_lonlat[key]
+if IS_OD:
+    # OD format: build point sequences from O-D segments
+    rows = []
+    for traj_id, grp in df.groupby('ID'):
+        grp = grp.reset_index(drop=True)  # preserve row order
+        mode = grp['mode'].iloc[0]
+        for i, (_, row) in enumerate(grp.iterrows()):
+            if i == 0:
+                # First origin
+                qo, ro, so = int(row['locxo']), int(row['locyo']), int(row['loczo'])
+                lo, la = cube_to_lonlat(qo, ro, so)
+                if lo is not None:
+                    rows.append({'ID': traj_id, 'lon': lo, 'lat': la, 'mode': mode, 'time': 0})
+            # Destination (every segment)
+            qd, rd, sd = int(row['locxd']), int(row['locyd']), int(row['loczd'])
+            ld, lad = cube_to_lonlat(qd, rd, sd)
+            if ld is not None:
+                rows.append({'ID': traj_id, 'lon': ld, 'lat': lad, 'mode': mode, 'time': i + 1})
 
-df['lon'] = lons
-df['lat'] = lats
-df_valid = df.dropna(subset=['lon', 'lat']).copy()
+    df_valid = pd.DataFrame(rows)
+else:
+    # Trajectory format: each row is a point
+    q_arr = np.round(df['locx'].values).astype(int)
+    r_arr = np.round(df['locy'].values).astype(int)
+    s_arr = -q_arr - r_arr
+    lons, lats = np.full(len(df), np.nan), np.full(len(df), np.nan)
+    for i in range(len(df)):
+        lons[i], lats[i] = cube_to_lonlat(q_arr[i], r_arr[i], s_arr[i])
+    df['lon'] = lons
+    df['lat'] = lats
+    df_valid = df.dropna(subset=['lon', 'lat']).copy()
+
 print(f"  {len(df_valid)} points mapped to lon/lat")
 
 # ── Plot each trajectory ────────────────────────────────────────────
