@@ -2,8 +2,44 @@ import random
 import pickle
 from collections import deque
 
+import numpy as np
 import pandas as pd
 from hexUtils import HEX_NEIGHBORS, HEX_OFFSETS
+
+HEX_CELL_KM = np.sqrt(3) * 0.2  # hex cell center-to-center distance ≈ 0.346 km
+
+# Cached real-data (dist_km, time_min) pairs grouped by closest mode speed
+_real_mode_pairs = None  # {mode: [(dist_km, time_min), ...]}
+
+
+def _load_real_distribution(csv_path='data/dataset_multicity_with_hex.csv', max_dist_km=50):
+    """Load real data and group (dist_km, time_min) pairs by nearest mode velocity."""
+    global _real_mode_pairs
+    if _real_mode_pairs is not None:
+        return _real_mode_pairs
+
+    mode_speeds = {'TG': 300, 'TS': 150, 'GG': 120, 'GSD': 60}
+    _real_mode_pairs = {m: [] for m in mode_speeds}
+
+    real = pd.read_csv(csv_path)
+    real = real[(real['dist'] > 0) & (real['time'] > 0)]
+    real = real[real['dist'] <= max_dist_km * 1000]  # max_dist_km in km, dist in m
+    real['vel'] = 3.6 * real['dist'] / real['time']  # km/h
+
+    for _, row in real.iterrows():
+        v = row['vel']
+        best_mode = min(mode_speeds, key=lambda m: abs(v - mode_speeds[m]))
+        _real_mode_pairs[best_mode].append(
+            (row['dist'] / 1000, row['time'] / 60)  # (dist_km, time_min)
+        )
+    return _real_mode_pairs
+
+
+def _sample_step(mode_pairs, mode):
+    """Sample (hex_cells, time_minutes) from the mode's real-data bucket."""
+    dist_km, time_min = random.choice(mode_pairs[mode])
+    cells = max(1, int(dist_km / HEX_CELL_KM + 0.5))
+    return cells, time_min
 
 
 def _bias(method: str, para1, para2):
@@ -111,8 +147,6 @@ def generate_traj_single(hex_grid: dict, size: int, mode: str, time_interval=6) 
         return df, route_df
 
     mode_rtslen_dict = {'TG': 300, 'GG': 200, 'GSD': 200, 'TS': 200}
-    mode_v_dict = {'TG': 300, 'GG': 120, 'GSD': 60, 'TS': 150}
-    mode_vbias_dict = {'TG': 50, 'GG': 20, 'GSD': 20, 'TS': 30}
     mode_len_dict = {'TG': 3, 'GG': 4, 'GSD': 5, 'TS': 4}
 
     i = 0
@@ -163,18 +197,17 @@ def generate_traj_single(hex_grid: dict, size: int, mode: str, time_interval=6) 
             prev_dir = delta
             current_pos = _get_new_coordinates(cq, cr, cs, delta)
 
-        # Sample trajectory with time_interval
-        v = mode_v_dict.get(mode, 0)
+        # Sample trajectory: time+distance from real data, grouped by mode velocity
+        mode_pairs = _load_real_distribution()
 
         j = 0
         timestamp = 0
         traj_len = 0
 
-        sub_data = [[traj_id, timestamp, route_list[0][0], route_list[0][1], route_list[0][2], mode]]
+        sub_data = [[traj_id, timestamp * 60, route_list[0][0], route_list[0][1], route_list[0][2], mode]]
         while j < len(route_list):
-            timestep = time_interval + _bias('normal', 0, 1)
+            spacestep, timestep = _sample_step(mode_pairs, mode)
             timestamp += timestep
-            spacestep = int(v + _bias('uniform', -mode_vbias_dict[mode], mode_vbias_dict[mode])) * timestep / 60
             traj_len += 1
             j = int(j + spacestep)
             if j >= len(route_list):
@@ -182,7 +215,7 @@ def generate_traj_single(hex_grid: dict, size: int, mode: str, time_interval=6) 
             locx, locy, locz = route_list[j][0], route_list[j][1], route_list[j][2]
 
             sub_data.append([traj_id,
-                             timestamp,
+                             timestamp * 60,
                              locx + int(_bias('uniform', -1.5, 1.5)),
                              locy + int(_bias('uniform', -1.5, 1.5)),
                              locz + int(_bias('uniform', -1.5, 1.5)),
@@ -231,9 +264,6 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
     if not candidates:
         print(f"Warning: No start candidates for mode {mode}")
         return df, route_df
-
-    mode_v_dict = {'TG': 300, 'GG': 120, 'GSD': 60, 'TS': 150}
-    mode_vbias_dict = {'TG': 50, 'GG': 20, 'GSD': 20, 'TS': 30}
 
     i = 0
     while i < size:
@@ -308,21 +338,19 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
         timestamp = 0
         traj_len = 0
 
-        current_v = mode_v_dict.get(current_mode, 0)
-        next_v = mode_v_dict.get(next_mode, 0)
+        mode_pairs = _load_real_distribution()
 
         sub_data = []  # accumulate rows
         while j < change_idx:
-            timestep = time_interval + _bias('normal', 0, 1)
+            spacestep, timestep = _sample_step(mode_pairs, former_mode)
             timestamp += timestep
-            spacestep = int(current_v + _bias('uniform', -mode_vbias_dict[former_mode], mode_vbias_dict[former_mode])) * timestep / 60
             traj_len += 1
             j = int(min(j + spacestep, change_idx))
             if j >= len(route_list):
                 break
             locx, locy, locz = route_list[j][0], route_list[j][1], route_list[j][2]
             sub_data.append([traj_id,
-                             timestamp,
+                             timestamp * 60,
                              locx + int(_bias('uniform', -1.5, 1.5)),
                              locy + int(_bias('uniform', -1.5, 1.5)),
                              locz + int(_bias('uniform', -1.5, 1.5)),
@@ -331,7 +359,7 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
         # Station stop: 4 min for TG, 7 min for TS
         timestamp += 4 if former_mode == 'TG' else 7
         sub_data.append([traj_id,
-                         timestamp,
+                         timestamp * 60,
                          route_list[change_idx][0] + int(_bias('uniform', -1.5, 1.5)),
                          route_list[change_idx][1] + int(_bias('uniform', -1.5, 1.5)),
                          route_list[change_idx][2] + int(_bias('uniform', -1.5, 1.5)),
@@ -339,16 +367,15 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
 
         # Latter part
         while j < len(route_list) - 1:
-            timestep = time_interval + _bias('normal', -1, 1)
+            spacestep, timestep = _sample_step(mode_pairs, next_mode)
             timestamp += timestep
-            spacestep = int(next_v + _bias('uniform', -mode_vbias_dict[next_mode], mode_vbias_dict[next_mode])) * timestep / 60
             traj_len += 1
             j = int(min(j + spacestep, len(route_list) - 1))
             if j >= len(route_list):
                 break
             locx, locy, locz = route_list[j][0], route_list[j][1], route_list[j][2]
             sub_data.append([traj_id,
-                             timestamp,
+                             timestamp * 60,
                              locx + int(_bias('uniform', -1.5, 1.5)),
                              locy + int(_bias('uniform', -1.5, 1.5)),
                              locz + int(_bias('uniform', -1.5, 1.5)),
@@ -370,22 +397,22 @@ if __name__ == '__main__':
 
     print(f"Loaded hex grid with {len(hex_grid_data)} cells")
 
-    traj_GG, rts_GG = generate_traj_single(hex_grid_data, size=200, mode='GG')
-    traj_GSD, rts_GSD = generate_traj_single(hex_grid_data, size=200, mode='GSD')
-    traj_TS, rts_TS = generate_traj_single(hex_grid_data, size=200, mode='TS')
-    traj_TG, rts_TG = generate_traj_single(hex_grid_data, size=200, mode='TG')
+    traj_GG, rts_GG = generate_traj_single(hex_grid_data, size=200, mode='GG', time_interval=2)
+    traj_GSD, rts_GSD = generate_traj_single(hex_grid_data, size=200, mode='GSD', time_interval=2)
+    traj_TS, rts_TS = generate_traj_single(hex_grid_data, size=200, mode='TS', time_interval=2)
+    traj_TG, rts_TG = generate_traj_single(hex_grid_data, size=200, mode='TG', time_interval=2)
 
     rts_single = pd.concat([rts_GG, rts_GSD, rts_TS, rts_TG])
     traj_single = pd.concat([traj_GG, traj_GSD, traj_TS, traj_TG])
     traj_single.to_csv('data/artificial_traj_mixed_single.csv', index=False)
     rts_single.to_csv('data/artificial_rts_mixed_single.csv', index=False)
 
-    traj_TG_GSD, rts_TG_GSD = generate_traj_mixed(hex_grid_data, size=50, mode='TG-GSD')
-    traj_GSD_TG, rts_GSD_TG = generate_traj_mixed(hex_grid_data, size=50, mode='GSD-TG')
-    traj_TS_TG, rts_TS_TG = generate_traj_mixed(hex_grid_data, size=50, mode='TS-TG')
-    traj_TG_TS, rts_TG_TS = generate_traj_mixed(hex_grid_data, size=50, mode='TG-TS')
-    traj_GSD_GG, rts_GSD_GG = generate_traj_mixed(hex_grid_data, size=50, mode='GSD-GG')
-    traj_GG_GSD, rts_GG_GSD = generate_traj_mixed(hex_grid_data, size=50, mode='GG-GSD')
+    traj_TG_GSD, rts_TG_GSD = generate_traj_mixed(hex_grid_data, size=50, mode='TG-GSD', time_interval=2)
+    traj_GSD_TG, rts_GSD_TG = generate_traj_mixed(hex_grid_data, size=50, mode='GSD-TG', time_interval=2)
+    traj_TS_TG, rts_TS_TG = generate_traj_mixed(hex_grid_data, size=50, mode='TS-TG', time_interval=2)
+    traj_TG_TS, rts_TG_TS = generate_traj_mixed(hex_grid_data, size=50, mode='TG-TS', time_interval=2)
+    traj_GSD_GG, rts_GSD_GG = generate_traj_mixed(hex_grid_data, size=50, mode='GSD-GG', time_interval=2)
+    traj_GG_GSD, rts_GG_GSD = generate_traj_mixed(hex_grid_data, size=50, mode='GG-GSD', time_interval=2)
 
     rts_mult = pd.concat([rts_TG_GSD, rts_GSD_TG, rts_TS_TG, rts_TG_TS, rts_GSD_GG, rts_GG_GSD])
     traj_mult = pd.concat([traj_TG_GSD, traj_GSD_TG, traj_TS_TG, traj_TG_TS, traj_GSD_GG, traj_GG_GSD])

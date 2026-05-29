@@ -63,10 +63,10 @@ _wgs84_to_gcj02_vec = np.vectorize(wgs84_to_gcj02, otypes=[np.float64, np.float6
 TILE_URL = "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}"
 TILE_SIZE = 256
 OUTPUT_DIR = "data/traj_plots"
-TRAJ_CSV = "data/artificial_od_test.csv"  # trajectory or OD CSV file
+TRAJ_CSV = "data\\artificial_od_all.csv"  # trajectory or OD CSV file
 MAX_TRAJS = None  # set to a number to limit output, None = all
 MAX_TRAJS_PER_MODE = None  # e.g. 5 to plot only 5 per mode, None = all
-PLOT_MODES = ['TG', 'GG', 'GSD', 'TS']  # set to subset, e.g. ['TG', 'TS']
+PLOT_MODES = ['TG', 'TS']  # set to subset, e.g. ['TG', 'TS']
 
 MODE_COLORS = {'TG': '#e31a1c', 'GG': '#1f78b4', 'GSD': '#fdbf6f', 'TS': '#33a02c'}
 MODE_LABELS = {'TG': '高铁 TG', 'GG': '高速 GG', 'GSD': '国省道 GSD', 'TS': '普铁 TS'}

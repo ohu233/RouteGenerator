@@ -30,7 +30,7 @@ def build_od_pairs(traj_path: str) -> pd.DataFrame:
         np.abs(out['locyd'] - out['locyo'])
     )
     # Physical distance: hex edge = 200m, center-to-center = sqrt(3) * 200m ≈ 346.4m
-    out['distance_km'] = out['distance_cells'] * np.sqrt(3) * 0.2
+    out['distance_m'] = out['distance_cells'] * np.sqrt(3) * 200
 
     return out
 
