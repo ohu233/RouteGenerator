@@ -22,15 +22,15 @@ def _load_real_distribution(csv_path='data/dataset_multicity_with_hex.csv', max_
     _real_mode_pairs = {m: [] for m in mode_speeds}
 
     real = pd.read_csv(csv_path)
-    real = real[(real['dist'] > 0) & (real['time'] > 0)]
-    real = real[real['dist'] <= max_dist_km * 1000]  # max_dist_km in km, dist in m
-    real['vel'] = 3.6 * real['dist'] / real['time']  # km/h
+    real = real[(real['dist_value'] > 0) & (real['time_value'] > 0)]
+    real = real[real['dist_value'] <= max_dist_km * 1000]  # max_dist_km in km, dist in m
+    real['vel'] = 3.6 * real['dist_value'] / real['time_value']  # km/h
 
     for _, row in real.iterrows():
         v = row['vel']
         best_mode = min(mode_speeds, key=lambda m: abs(v - mode_speeds[m]))
         _real_mode_pairs[best_mode].append(
-            (row['dist'] / 1000, row['time'] / 60)  # (dist_km, time_min)
+            (row['dist_value'] / 1000, row['time_value'] / 60)  # (dist_km, time_min)
         )
     return _real_mode_pairs
 
@@ -214,12 +214,12 @@ def generate_traj_single(hex_grid: dict, size: int, mode: str, time_interval=6) 
                 break
             locx, locy, locz = route_list[j][0], route_list[j][1], route_list[j][2]
 
+            qx = locx + int(_bias('uniform', -1.5, 1.5))
+            ry = locy + int(_bias('uniform', -1.5, 1.5))
+            sz = -qx - ry
             sub_data.append([traj_id,
                              timestamp * 60,
-                             locx + int(_bias('uniform', -1.5, 1.5)),
-                             locy + int(_bias('uniform', -1.5, 1.5)),
-                             locz + int(_bias('uniform', -1.5, 1.5)),
-                             mode])
+                             qx, ry, sz, mode])
 
         if traj_len >= mode_len_dict[mode]:
             sub_df = pd.DataFrame(sub_data, columns=["ID", "time", "locx", "locy", "locz", "mode"])
@@ -349,11 +349,12 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
             if j >= len(route_list):
                 break
             locx, locy, locz = route_list[j][0], route_list[j][1], route_list[j][2]
+            qx = locx + int(_bias('uniform', -1.5, 1.5))
+            ry = locy + int(_bias('uniform', -1.5, 1.5))
+            sz = -qx - ry
             sub_data.append([traj_id,
                              timestamp * 60,
-                             locx + int(_bias('uniform', -1.5, 1.5)),
-                             locy + int(_bias('uniform', -1.5, 1.5)),
-                             locz + int(_bias('uniform', -1.5, 1.5)),
+                             qx, ry, sz,
                              former_mode])
 
         # Station stop: 4 min for TG, 7 min for TS
@@ -362,7 +363,7 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
                          timestamp * 60,
                          route_list[change_idx][0] + int(_bias('uniform', -1.5, 1.5)),
                          route_list[change_idx][1] + int(_bias('uniform', -1.5, 1.5)),
-                         route_list[change_idx][2] + int(_bias('uniform', -1.5, 1.5)),
+                         -(route_list[change_idx][0] + int(_bias('uniform', -1.5, 1.5))) - (route_list[change_idx][1] + int(_bias('uniform', -1.5, 1.5))),
                          0])
 
         # Latter part
@@ -374,11 +375,12 @@ def generate_traj_mixed(hex_grid: dict, size: int, mode: str, time_interval=6) -
             if j >= len(route_list):
                 break
             locx, locy, locz = route_list[j][0], route_list[j][1], route_list[j][2]
+            qx = locx + int(_bias('uniform', -1.5, 1.5))
+            ry = locy + int(_bias('uniform', -1.5, 1.5))
+            sz = -qx - ry
             sub_data.append([traj_id,
                              timestamp * 60,
-                             locx + int(_bias('uniform', -1.5, 1.5)),
-                             locy + int(_bias('uniform', -1.5, 1.5)),
-                             locz + int(_bias('uniform', -1.5, 1.5)),
+                             qx, ry, sz,
                              next_mode])
 
         if traj_len >= 6:

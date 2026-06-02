@@ -266,12 +266,16 @@ if IS_OD:
         for i, (_, row) in enumerate(grp.iterrows()):
             if i == 0:
                 # First origin
-                qo, ro, so = int(row['locxo']), int(row['locyo']), int(row['loczo'])
+                qo = round(row['locxo'])
+                ro = round(row['locyo'])
+                so = -qo - ro
                 lo, la = cube_to_lonlat(qo, ro, so)
                 if lo is not None:
                     rows.append({'ID': traj_id, 'lon': lo, 'lat': la, 'mode': mode, 'time': 0})
             # Destination (every segment)
-            qd, rd, sd = int(row['locxd']), int(row['locyd']), int(row['loczd'])
+            qd = round(row['locxd'])
+            rd = round(row['locyd'])
+            sd = -qd - rd
             ld, lad = cube_to_lonlat(qd, rd, sd)
             if ld is not None:
                 rows.append({'ID': traj_id, 'lon': ld, 'lat': lad, 'mode': mode, 'time': i + 1})

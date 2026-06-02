@@ -188,13 +188,17 @@ def analyze_od(hex_grid, csv_path):
             orig_mode = extract_origin_mode(traj_id, dst_mode)
 
             # origin — use inferred origin mode
-            qo, ro, so = int(row['locxo']), int(row['locyo']), int(row['loczo'])
+            qo = round(row['locxo'])
+            ro = round(row['locyo'])
+            so = -qo - ro
             _, _, _, do = find_nearest_road(hex_grid, qo, ro, so, orig_mode, max_dist=5)
             do = min(do if do is not None else 6, 6)
             dist_counts[do] += 1
 
             # destination — use the row's mode column
-            qd, rd, sd = int(row['locxd']), int(row['locyd']), int(row['loczd'])
+            qd = round(row['locxd'])
+            rd = round(row['locyd'])
+            sd = -qd - rd
             _, _, _, dd = find_nearest_road(hex_grid, qd, rd, sd, dst_mode, max_dist=5)
             dd = min(dd if dd is not None else 6, 6)
             dist_counts[dd] += 1

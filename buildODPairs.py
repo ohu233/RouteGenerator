@@ -10,16 +10,22 @@ def build_od_pairs(traj_path: str) -> pd.DataFrame:
     for traj_id, group in df.groupby('ID'):
         group = group.sort_values('time').reset_index(drop=True)
         for i in range(len(group) - 1):
+            qo = round(group.loc[i, 'locx'])
+            ro = round(group.loc[i, 'locy'])
+            so = -qo - ro
+            qd = round(group.loc[i + 1, 'locx'])
+            rd = round(group.loc[i + 1, 'locy'])
+            sd = -qd - rd
             rows.append({
                 'ID': traj_id,
-                'locxo': int(group.loc[i, 'locx']),
-                'locyo': int(group.loc[i, 'locy']),
-                'loczo': int(group.loc[i, 'locz']),
-                'locxd': int(group.loc[i + 1, 'locx']),
-                'locyd': int(group.loc[i + 1, 'locy']),
-                'loczd': int(group.loc[i + 1, 'locz']),
-                'mode': group.loc[i + 1, 'mode'],        # destination mode
-                'time': group.loc[i + 1, 'time'] - group.loc[i, 'time'],  # travel time (minutes)
+                'locxo': qo,
+                'locyo': ro,
+                'loczo': so,
+                'locxd': qd,
+                'locyd': rd,
+                'loczd': sd,
+                'mode': group.loc[i + 1, 'mode'],
+                'time': group.loc[i + 1, 'time'] - group.loc[i, 'time'],
             })
 
     out = pd.DataFrame(rows)
